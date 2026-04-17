@@ -4,7 +4,7 @@ from typing import Any
 
 import streamlit as st
 
-from model_contract import FEATURE_CONTRACT, MODEL_ARTIFACT_PATH, predict_delay
+from model_contract import FEATURE_CONTRACT, MODEL_ARTIFACT_PATH, load_model, predict_delay
 
 
 APP_TITLE = "Supply Chain Delay Oracle"
@@ -146,11 +146,18 @@ st.markdown(
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
 
-model_exists = MODEL_ARTIFACT_PATH.exists()
-if not model_exists:
+model_ready = False
+model_error = None
+try:
+    load_model(MODEL_ARTIFACT_PATH)
+    model_ready = True
+except Exception as exc:
+    model_error = str(exc)
+
+if not model_ready:
     st.error(
-        f"Model artifact missing: {MODEL_ARTIFACT_PATH}. "
-        "Train it first with `python3 train_baseline_model.py`."
+        f"Model artifact unavailable: {MODEL_ARTIFACT_PATH}. "
+        f"{model_error or 'Train it first with `python3 train_baseline_model.py`.'}"
     )
 else:
     st.success(f"Using saved model artifact: {MODEL_ARTIFACT_PATH.name}")
@@ -228,10 +235,10 @@ with st.form("delay_demo_form"):
             "Predict",
             use_container_width=True,
             type="primary",
-            disabled=not model_exists,
+            disabled=not model_ready,
         )
 
-if submitted and model_exists:
+if submitted and model_ready:
     try:
         payload = {
             "approval_delay": float(st.session_state.approval_delay),
