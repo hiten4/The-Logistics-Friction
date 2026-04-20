@@ -1,78 +1,23 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
+import httpx
 import streamlit as st
 
-from model_contract import FEATURE_CONTRACT, MODEL_ARTIFACT_PATH, load_model, predict_delay
-
-
-APP_TITLE = "Supply Chain Delay Oracle"
-APP_SUBTITLE = "Checkpoint demo using the saved logistic regression baseline artifact."
-
-RISK_BANDS = (
-    (0.40, "Low", "Standard fulfilment and routine customer messaging."),
-    (0.65, "Medium", "Monitor closely and prepare a proactive customer update."),
-    (1.01, "High", "Escalate to operations, prioritize intervention, and contact the customer early."),
+from demo_config import (
+    APP_SUBTITLE,
+    APP_TITLE,
+    BACKEND_DEFAULT_URL,
+    DAY_LABELS,
+    DEMO_SCENARIOS,
 )
+from model_contract import FEATURE_CONTRACT
 
-DAY_LABELS = {
-    0: "Monday",
-    1: "Tuesday",
-    2: "Wednesday",
-    3: "Thursday",
-    4: "Friday",
-    5: "Saturday",
-    6: "Sunday",
-}
 
-DEMO_SCENARIOS = {
-    "Routine order": {
-        "approval_delay": 0.0,
-        "estimated_delivery_time": 30.0,
-        "purchase_day_of_week": 1,
-        "purchase_hour": 8,
-        "total_items": 4.0,
-        "total_price": 220.0,
-        "total_freight_value": 5.0,
-    },
-    "Borderline watchlist": {
-        "approval_delay": 1.0,
-        "estimated_delivery_time": 18.0,
-        "purchase_day_of_week": 2,
-        "purchase_hour": 12,
-        "total_items": 2.0,
-        "total_price": 90.0,
-        "total_freight_value": 18.0,
-    },
-    "Approval bottleneck": {
-        "approval_delay": 1.0,
-        "estimated_delivery_time": 14.0,
-        "purchase_day_of_week": 4,
-        "purchase_hour": 15,
-        "total_items": 1.0,
-        "total_price": 65.0,
-        "total_freight_value": 25.0,
-    },
-    "Weekend escalation": {
-        "approval_delay": 3.0,
-        "estimated_delivery_time": 7.0,
-        "purchase_day_of_week": 5,
-        "purchase_hour": 20,
-        "total_items": 1.0,
-        "total_price": 30.0,
-        "total_freight_value": 45.0,
-    },
-    "Severe friction": {
-        "approval_delay": 5.0,
-        "estimated_delivery_time": 5.0,
-        "purchase_day_of_week": 6,
-        "purchase_hour": 22,
-        "total_items": 1.0,
-        "total_price": 20.0,
-        "total_freight_value": 60.0,
-    },
-}
+API_TIMEOUT_SECONDS = 5.0
+BACKEND_URL = os.getenv("LOGISTICS_BACKEND_URL", BACKEND_DEFAULT_URL).rstrip("/")
 
 
 def apply_scenario(name: str) -> None:
@@ -89,24 +34,35 @@ def initialize_state() -> None:
         apply_scenario("Routine order")
 
 
-def get_risk_band(delay_probability: float) -> tuple[str, str]:
-    for threshold, label, action in RISK_BANDS:
-        if delay_probability < threshold:
-            return label, action
-    return "High", RISK_BANDS[-1][2]
-
-
 def render_prediction(result: dict[str, Any]) -> None:
-    delay_probability = float(result["delay_probability"])
-    predicted_class = "Delayed" if int(result["is_delayed"]) == 1 else "Not delayed"
-    risk_band, action = get_risk_band(delay_probability)
-
     st.subheader("Prediction")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Predicted class", predicted_class)
-    col2.metric("Delay probability", f"{delay_probability:.1%}")
-    col3.metric("Risk band", risk_band)
-    st.info(f"Recommended action: {action}")
+    col1.metric("Predicted class", str(result["predicted_class"]))
+    col2.metric("Delay probability", f"{float(result['delay_probability']):.1%}")
+    col3.metric("Risk band", str(result["risk_band"]))
+    st.info(f"Recommended action: {result['recommended_action']}")
+    st.caption(f"Served by backend artifact: {result['model_artifact']}")
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def get_backend_health(backend_url: str) -> dict[str, Any]:
+    with httpx.Client(timeout=API_TIMEOUT_SECONDS) as client:
+        response = client.get(f"{backend_url}/health")
+        response.raise_for_status()
+        return response.json()
+
+
+def request_prediction(payload: dict[str, Any]) -> dict[str, Any]:
+    with httpx.Client(timeout=API_TIMEOUT_SECONDS) as client:
+        response = client.post(f"{BACKEND_URL}/predict", json=payload)
+        if response.is_error:
+            detail = response.text
+            try:
+                detail = response.json().get("detail", detail)
+            except ValueError:
+                pass
+            raise ValueError(f"Backend prediction failed: {detail}")
+        return response.json()
 
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📦", layout="wide")
@@ -145,22 +101,32 @@ st.markdown(
 
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
+st.caption(f"Frontend target: `{BACKEND_URL}`")
 
-model_ready = False
-model_error = None
+backend_health = None
+backend_error = None
 try:
-    load_model(MODEL_ARTIFACT_PATH)
-    model_ready = True
+    backend_health = get_backend_health(BACKEND_URL)
 except Exception as exc:
-    model_error = str(exc)
+    backend_error = str(exc)
 
-if not model_ready:
+backend_ready = bool(backend_health and backend_health.get("model_ready"))
+
+if backend_error:
     st.error(
-        f"Model artifact unavailable: {MODEL_ARTIFACT_PATH}. "
-        f"{model_error or 'Train it first with `python3 train_baseline_model.py`.'}"
+        f"Backend unavailable at {BACKEND_URL}. "
+        "Start it with `python3 -m uvicorn api:app --host 127.0.0.1 --port 8000`."
     )
+    st.caption(backend_error)
+elif not backend_ready:
+    st.error(
+        "Backend is running but the model artifact is unavailable. "
+        "Train it first with `python3 train_baseline_model.py`."
+    )
+    if backend_health and backend_health.get("error"):
+        st.caption(str(backend_health["error"]))
 else:
-    st.success(f"Using saved model artifact: {MODEL_ARTIFACT_PATH.name}")
+    st.success("Backend API is healthy and ready for predictions.")
 
 st.subheader("Demo scenarios")
 scenario_columns = st.columns(len(DEMO_SCENARIOS))
@@ -235,10 +201,10 @@ with st.form("delay_demo_form"):
             "Predict",
             use_container_width=True,
             type="primary",
-            disabled=not model_ready,
+            disabled=not backend_ready,
         )
 
-if submitted and model_ready:
+if submitted and backend_ready:
     try:
         payload = {
             "approval_delay": float(st.session_state.approval_delay),
@@ -249,9 +215,9 @@ if submitted and model_ready:
             "total_price": float(st.session_state.total_price),
             "total_freight_value": float(st.session_state.total_freight_value),
         }
-        st.session_state.prediction_result = predict_delay(payload, model_path=MODEL_ARTIFACT_PATH)
+        st.session_state.prediction_result = request_prediction(payload)
         st.session_state.prediction_error = None
-    except (FileNotFoundError, ValueError) as exc:
+    except ValueError as exc:
         st.session_state.prediction_result = None
         st.session_state.prediction_error = str(exc)
     except Exception as exc:  # pragma: no cover - presentation fallback

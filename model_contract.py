@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
 import zipfile
@@ -37,6 +38,8 @@ TARGET_COLUMN = "is_delayed"
 
 def load_processed_dataset(dataset_path: Path | None = None) -> pd.DataFrame:
     zip_path = Path(dataset_path or PROCESSED_DATASET_PATH)
+    if not zip_path.exists():
+        raise FileNotFoundError(f"Processed dataset not found at {zip_path}.")
     with zipfile.ZipFile(zip_path) as zipped_dataset:
         csv_members = [name for name in zipped_dataset.namelist() if name.endswith(".csv")]
         if len(csv_members) != 1:
@@ -63,13 +66,18 @@ def build_feature_frame(features: Mapping[str, object]) -> pd.DataFrame:
     return pd.DataFrame([ordered_row], columns=FEATURE_NAMES)
 
 
+@lru_cache(maxsize=4)
+def _load_model_cached(artifact_path: str):
+    return joblib.load(artifact_path)
+
+
 def load_model(model_path: Path | None = None):
     artifact_path = Path(model_path or MODEL_ARTIFACT_PATH)
     if not artifact_path.exists():
         raise FileNotFoundError(
             f"Model artifact not found at {artifact_path}. Run train_baseline_model.py first."
         )
-    return joblib.load(artifact_path)
+    return _load_model_cached(str(artifact_path.resolve()))
 
 
 def predict_delay(features: Mapping[str, object], model_path: Path | None = None) -> dict[str, float | int]:

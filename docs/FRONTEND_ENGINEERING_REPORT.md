@@ -42,12 +42,14 @@ I implemented:
 - A reproducible baseline training script that reads the committed processed dataset
 - A saved sklearn model artifact for demo reuse
 - A small shared inference and feature-contract module
+- A thin FastAPI backend for local prediction requests
 - A thin Streamlit frontend for checkpoint presentation use
 - One-click demo scenarios to make the presentation reliable
+- Lightweight tests for the feature contract and API path
 - A README update aligned to the actual implemented workflow
-- A startup safety check so the frontend verifies that the saved model artifact can actually be loaded before allowing predictions
+- A startup safety check so the frontend verifies that the backend and saved model artifact are both available before allowing predictions
 
-I did not redesign the model, introduce a new backend architecture, or add fake production claims.
+I did not redesign the model, introduce a broad backend platform, or add fake production claims.
 
 ## 4. Files Created And Modified
 
@@ -58,7 +60,10 @@ I did not redesign the model, introduce a new backend architecture, or add fake 
 - `model_contract.py`
 - `train_baseline_model.py`
 - `artifacts/baseline_logreg_pipeline.joblib`
+- `api.py`
 - `streamlit_app.py`
+- `tests/test_api.py`
+- `tests/test_model_contract.py`
 
 ### Modified
 
@@ -75,16 +80,16 @@ Streamlit was chosen because it was the fastest safe path to a presentation-read
 
 It fit the problem well for four reasons:
 
-- The model already ran in Python, so no API layer was required
+- The model already ran in Python, so the frontend could stay thin
 - The UI needed only a small number of numeric controls and clear outputs
 - Demo scenarios could be added quickly and safely
 - The implementation cost was low enough to keep focus on reliability rather than framework overhead
 
-For this checkpoint, Streamlit provided the shortest path from trained artifact to usable interface.
+For the current repo state, a thin API was then added behind the frontend so the browser flow exercises a real backend instead of bypassing it.
 
 ## 6. How The Frontend Connects To The Trained Model
 
-The frontend does not retrain the model.
+The frontend does not retrain the model or load the sklearn artifact directly.
 
 Instead, it uses the saved artifact at:
 
@@ -93,13 +98,14 @@ Instead, it uses the saved artifact at:
 The integration path is:
 
 1. `streamlit_app.py` collects the 7 baseline input features
-2. The app calls `predict_delay(features)` from `model_contract.py`
-3. `model_contract.py` loads the saved sklearn pipeline artifact
-4. The helper builds a one-row dataframe in the exact expected feature order
-5. The pipeline returns both predicted class and delay probability
-6. The frontend maps the probability to a presentation-friendly risk band and recommended business action
+2. The app calls `POST /predict` on `api.py`
+3. `api.py` validates the request payload and checks backend/model readiness
+4. `model_contract.py` loads the saved sklearn pipeline artifact with caching
+5. The helper builds a one-row dataframe in the exact expected feature order
+6. The backend returns predicted class, delay probability, risk band, and recommended action
+7. The frontend renders the response and surfaces backend health honestly
 
-This keeps the frontend thin and aligned to the saved baseline model.
+This keeps the frontend thin while still exercising a real backend boundary.
 
 ## 7. Demo Scenarios Added
 
@@ -127,6 +133,12 @@ python3 -m pip install -r requirements.txt
 python3 train_baseline_model.py
 ```
 
+### Run the backend
+
+```bash
+python3 -m uvicorn api:app --host 127.0.0.1 --port 8000
+```
+
 ### Run the frontend
 
 ```bash
@@ -139,21 +151,21 @@ The repository is now demoable, but it is still a checkpoint build rather than a
 
 Current limitations include:
 
-- The frontend is local-first and depends on the committed model artifact
-- There is no API or deployment layer
+- The frontend and backend are still local-first and depend on the committed model artifact
+- There is a local API boundary, but no deployment layer
 - The baseline model remains the original logistic regression approach
 - Input validation is structural, not deeply business-semantic
 - Predictions are suitable for demo decision support, not operational automation
-- The UI is intentionally minimal and does not include analytics, history, authentication, or audit features
+- The UI is intentionally minimal and does not include analytics, history, authentication, or multi-user audit features
 
 ## 10. What I Would Improve Next With More Time
 
 If given more time, I would improve the solution in the following order:
 
-1. Add lightweight automated tests for the training path, artifact loading, and frontend prediction flow
+1. Add broader automated coverage for the training path, frontend rendering, and failure-mode flows
 2. Add stronger business-level validation and explanatory guidance around feature inputs
-3. Introduce model caching in the frontend to avoid repeated artifact loads during a session
-4. Add a small API boundary so the UI and inference logic are more cleanly separated
+3. Persist request/response history and expose basic observability on the backend
+4. Expand the API beyond a single prediction path if the product grows past checkpoint-demo needs
 5. Improve demo observability with clearer input summaries, confidence context, and prediction explanation cues
 6. Replace the checkpoint-style setup with a more complete packaging and environment workflow
 
