@@ -42,6 +42,7 @@ Thumbs.db
 # =========================
 *.log
 *.tmp
+.pytest_cache/
 
 # =========================
 # Data Files
@@ -59,3 +60,4 @@ Thumbs.db
 # Misc
 # =========================
 *.bak
+output/playwright/

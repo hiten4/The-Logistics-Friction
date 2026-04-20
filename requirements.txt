@@ -1,33 +1,28 @@
-# ─────────────────────────────────────────────────────────────
-# TheLogisticsFriction — Requirements
-# Install with: pip install -r requirements.txt
-# ─────────────────────────────────────────────────────────────
+# Core data stack
+pandas>=2.0,<3
+numpy>=1.26,<3
 
-# ── Core data stack ──────────────────────────────────────────
-pandas>=2.0.0
-numpy>=1.26.0
+# Modeling and experiments
+scikit-learn>=1.3,<2
+scipy>=1.11,<2
+xgboost>=2.0,<3
+lightgbm>=4.0,<5
+joblib>=1.3,<2
 
-# ── Visualisation ────────────────────────────────────────────
-matplotlib>=3.7.0
-seaborn>=0.13.0
+# Visualisation
+matplotlib>=3.7,<4
+seaborn>=0.13,<1
 
-# ── Machine learning ─────────────────────────────────────────
-scikit-learn>=1.3.0
-scipy>=1.11.0
+# Demo runtime
+streamlit>=1.44,<2
+fastapi>=0.116,<1
+uvicorn>=0.34,<1
+httpx>=0.28,<1
 
-# ── Notebook environment ─────────────────────────────────────
-jupyter>=1.0.0
-notebook>=7.0.0
-ipykernel>=6.25.0
+# Testing
+pytest>=8.3,<9
 
-# ── Utilities (stdlib — listed for clarity, no install needed)
-# unicodedata  — built-in
-# pathlib      — built-in
-# warnings     — built-in
-
-# ── Machine learning ─────────────────────────────────────────
-scikit-learn>=1.3.0
-scipy>=1.11.0
-xgboost>=2.0.0
-lightgbm>=4.0.0
-joblib>=1.3.0
+# Notebook environment
+jupyter>=1.0,<2
+notebook>=7.0,<8
+ipykernel>=6.25,<7
